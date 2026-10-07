@@ -8,3 +8,7 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Keep the floating workspace and action panels in browser-side feature components; this request is an interactive presentation, not a connected accounting service.
+- Use browser-native speech recognition with explicit user activation and cleanup; microphone audio should not be uploaded by this presentation.
+- Define orbit geometry and animation styling in the global design system; stable sizing keeps the radial menu coherent across screen sizes.
