@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, BarChart3, Check, ChevronRight, FilePlus2, FileUp, Headphones, Mic, MoreHorizontal, Search, Settings2, Sparkles, Users, Volume2, X, Receipt, Plus, Download, Square } from "lucide-react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { ArrowDownLeft, ArrowUpRight, BarChart3, Check, FilePlus2, FileUp, Mic, MoreHorizontal, Search, Settings2, Sparkles, Users, Volume2, X, Plus, Download, Square, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import bloom from "@/assets/bloom.jpg";
 import mascot from "@/assets/book-mascot.png";
 
 type Action = "Search" | "Voice input" | "Reports" | "More options" | "Quick invoice" | "Customer ledger" | "New entry" | "Upload bill";
@@ -34,7 +33,10 @@ export function Workspace() {
   const [language, setLanguage] = useState("en-IN");
   const [files, setFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState("");
-  const [clock, setClock] = useState("");
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const stage = useRef<HTMLDivElement | null>(null);
+  const drag = useRef<{ x: number; y: number; originX: number; originY: number; moved: boolean } | null>(null);
   const [gentle, setGentle] = useState(false);
   const [sound, setSound] = useState(false);
   const recognition = useRef<Recognition | null>(null);
@@ -42,15 +44,43 @@ export function Workspace() {
   const expenses = entries.filter(e => e.kind === "Expense").reduce((sum, e) => sum + e.amount, 0);
 
   useEffect(() => {
-    const update = () => setClock(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }));
-    update(); const timer = setInterval(update, 60000);
-    return () => { clearInterval(timer); recognition.current?.abort(); };
+    return () => { recognition.current?.abort(); };
   }, []);
+  useEffect(() => {
+    const reposition = () => setPosition(previous => previous ? boundPosition(previous.x, previous.y) : previous);
+    reposition(); window.addEventListener("resize", reposition);
+    return () => window.removeEventListener("resize", reposition);
+  }, [expanded]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(""), 4000); return () => clearTimeout(timer); }, [notice]);
 
   function stopVoice() { recognition.current?.stop(); setListening(false); }
   function openAction(action: Action) { setActive(action); setVoiceError(""); }
   function closeAction() { stopVoice(); setActive(null); }
+  function boundPosition(x: number, y: number) {
+    const radius = stage.current ? parseFloat(getComputedStyle(stage.current).getPropertyValue("--orbit-radius")) : 173;
+    const marginX = Math.min(expanded ? radius + 58 : 110, window.innerWidth / 2);
+    const marginY = Math.min(expanded ? radius + 85 : 120, window.innerHeight / 2);
+    return { x: Math.max(marginX, Math.min(window.innerWidth - marginX, x)), y: Math.max(marginY, Math.min(window.innerHeight - marginY, y)) };
+  }
+  function beginDrag(event: PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return;
+    const bounds = stage.current?.getBoundingClientRect();
+    if (!bounds) return;
+    drag.current = { x: event.clientX, y: event.clientY, originX: bounds.left + bounds.width / 2, originY: bounds.top + bounds.height / 2, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveDrag(event: PointerEvent<HTMLButtonElement>) {
+    const start = drag.current;
+    if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const dx = event.clientX - start.x; const dy = event.clientY - start.y;
+    if (Math.hypot(dx, dy) > 5) start.moved = true;
+    if (!start.moved) return;
+    setDragging(true); setPosition(boundPosition(start.originX + dx, start.originY + dy));
+  }
+  function endDrag(event: PointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragging(false);
+  }
   function startVoice() {
     const speechWindow = window as SpeechWindow;
     const Constructor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
@@ -82,27 +112,16 @@ export function Workspace() {
   }
 
   return <main className={`workspace ${gentle ? "gentle-motion" : ""}`}>
-    <img className="wallpaper" src={bloom} width={1920} height={1088} alt="" />
-    <div className="wallpaper-shade" />
-    <header className="workspace-header">
-      <a href="/" className="brand"><span className="brand-symbol"><Receipt size={19} /></span>booksy<span className="brand-dot">.</span></a>
-      <div className="workspace-name"><span className="status-dot" />My workspace</div>
-      <div className="header-tools"><span className="session-label">Personal space</span><Button variant="glass" size="icon" aria-label="Open settings" onClick={() => openAction("More options")}><Settings2 /></Button><span className="avatar">J</span></div>
-    </header>
-    <section className="greeting"><span className="eyebrow">A LITTLE SPACE FOR YOUR EVERYDAY</span><h1>Everything feels<br />a little lighter.</h1><div className="greeting-date"><span className="small-line" />Your books. Your pace.</div></section>
-    <div className={`orbit-stage ${expanded ? "is-open" : ""}`}>
+    <div ref={stage} style={position ? { left: position.x, top: position.y } : undefined} className={`orbit-stage ${expanded ? "is-open" : ""} ${dragging ? "is-dragging" : ""}`}>
       <div className="orbit-track track-outer" /><div className="orbit-track track-inner" />
       <div className="orbit-center">
-        <div className="mascot-float"><Button variant="mascot" aria-label={expanded ? "Close book menu" : "Open book menu"} aria-expanded={expanded} onClick={() => { setExpanded(!expanded); if (sound && !expanded && "speechSynthesis" in window) { const greeting = new SpeechSynthesisUtterance("Hello! What shall we do today?"); window.speechSynthesis.speak(greeting); } }}><img src={mascot} width={1024} height={1024} alt="Booksy, your smiling bookkeeper" /></Button></div>
+        <div className="mascot-float"><Button variant="mascot" aria-label={expanded ? "Close book menu" : "Open book menu"} aria-expanded={expanded} onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={event => { if (drag.current) drag.current.moved = true; endDrag(event); }} onClick={() => { if (drag.current?.moved) { drag.current = null; return; } setExpanded(!expanded); if (sound && !expanded && "speechSynthesis" in window) { const greeting = new SpeechSynthesisUtterance("Hello! What shall we do today?"); window.speechSynthesis.speak(greeting); } }}><img draggable={false} src={mascot} width={1024} height={1024} alt="Booksy, your smiling bookkeeper" /></Button></div>
         <span className="mascot-spark spark-one"><Sparkles /></span><span className="mascot-spark spark-two">✦</span>
-        <div className="mascot-caption"><span className="mascot-name">Hey, I’m Booksy<span> ✦</span></span><span className="mascot-status">{expanded ? "What’s on your mind?" : "Ready when you are"}</span></div>
       </div>
       <nav aria-label="Book actions" aria-hidden={!expanded} className="orbit-items">{actions.map(({ name, Icon, tone }, index) => <div key={name} className={`orbit-item orbit-${index} tone-${tone}`}><Button tabIndex={expanded ? 0 : -1} variant="orbit" aria-label={name} onClick={() => openAction(name)}><Icon /></Button><span className="orbit-label">{name}</span></div>)}</nav>
     </div>
-    <div className="workspace-bottom"><div className="today-block"><span className="status-dot" />ALL GOOD TODAY<span className="today-time">{clock}</span></div><div className="bottom-actions"><Button variant="glass" aria-label="View current session entries" onClick={() => openAction("Customer ledger")}><span className="activity-dot" />{entries.length ? `${entries.length} entries this session` : "A fresh start"}<ChevronRight /></Button><Button variant="glass" size="icon" aria-label="Voice input" onClick={() => openAction("Voice input")}><Headphones /></Button></div></div>
-    <footer className="workspace-footer"><span>A little order. A lot of peace.</span><span>MADE FOR YOUR EVERYDAY <Sparkles size={11} /></span></footer>
     {notice && <div className="notice" role="status"><Check size={16} />{notice}</div>}
-    <Dialog open={active !== null} onOpenChange={open => { if (!open) closeAction(); }}><DialogContent className="action-dialog"><div className="panel-eyebrow"><span className="brand-symbol"><Receipt size={16} /></span>BOOKSY WORKSPACE</div><DialogTitle>{active}</DialogTitle><DialogDescription>{active === "Voice input" ? "Microphone access is needed to turn your speech into a note." : "Current session · nothing is saved after a refresh"}</DialogDescription>
+    <Dialog modal={false} open={active !== null} onOpenChange={open => { if (!open) closeAction(); }}><DialogContent variant="floating" className="action-dialog" onInteractOutside={event => { if (event.target instanceof Node && stage.current?.contains(event.target)) event.preventDefault(); }}><DialogTitle>{active}</DialogTitle><DialogDescription className="floating-description">{active === "Voice input" ? "Allow microphone access to transcribe." : "Session only · clears on refresh"}</DialogDescription>
       {active === "Search" && <><div className="search-input"><Search size={20} /><input autoFocus placeholder="Search entries, customers, bills…" value={query} onChange={event => setQuery(event.target.value)} /></div><div className="result-list">{entries.filter(e => e.name.toLowerCase().includes(query.toLowerCase())).map(e => <div className="entry-row" key={e.id}><span><strong>{e.name}</strong><small>{e.kind} · {e.date}</small></span><strong>{currency(e.amount)}</strong></div>)}{!entries.some(e => e.name.toLowerCase().includes(query.toLowerCase())) && <div className="empty-state"><Search size={28} /><p>{query ? `No results for “${query}”` : "No entries yet"}</p><Button variant="secondary" onClick={() => openAction("New entry")}><Plus />New entry</Button></div>}</div></>}
       {active === "Voice input" && <><div className={`voice-visual ${listening ? "listening" : ""}`}><Mic size={32} /><div className="voice-bars">{Array.from({ length: 13 }, (_, i) => <span key={i} />)}</div><span>{listening ? "Listening…" : "Your voice, in words"}</span></div><label className="field">Language<select value={language} disabled={listening} onChange={e => setLanguage(e.target.value)}><option value="en-IN">English (India)</option><option value="hi-IN">Hindi</option><option value="gu-IN">Gujarati</option><option value="en-US">English (US)</option></select></label><textarea className="note-input" aria-label="Voice transcript" placeholder="Your words will appear here…" value={transcript} onChange={e => setTranscript(e.target.value)} />{voiceError && <p className="error-text" role="alert">{voiceError}</p>}<div className="panel-actions"><Button onClick={listening ? stopVoice : startVoice}>{listening ? <Square /> : <Mic />}{listening ? "Stop listening" : "Start listening"}</Button><Button variant="outline" disabled={!transcript.trim()} onClick={() => { stopVoice(); download("booksy-voice-note.txt", transcript); setNotice("Voice note downloaded"); }}><Download />Save note</Button></div></>}
       {active === "New entry" && <form className="action-form" onSubmit={addEntry}><label className="field">Description<input name="name" autoFocus required placeholder="e.g. Payment from Aarav" /></label><div className="field-grid"><label className="field">Amount (₹)<input name="amount" type="number" min="0.01" step="0.01" required placeholder="0.00" /></label><label className="field">Type<select name="kind"><option>Income</option><option>Expense</option></select></label></div><Button type="submit"><Plus />Add entry</Button></form>}

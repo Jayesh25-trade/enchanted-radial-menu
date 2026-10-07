@@ -12,3 +12,4 @@
 - Keep the floating workspace and action panels in browser-side feature components; this request is an interactive presentation, not a connected accounting service.
 - Use browser-native speech recognition with explicit user activation and cleanup; microphone audio should not be uploaded by this presentation.
 - Define orbit geometry and animation styling in the global design system; stable sizing keeps the radial menu coherent across screen sizes.
+- Use captured pointer events for widget dragging and nonmodal floating action panels; the widget remains movable while its tools are open.
